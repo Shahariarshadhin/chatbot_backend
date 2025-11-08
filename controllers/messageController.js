@@ -112,7 +112,17 @@ class MessageController {
         timestamp: new Date()
       });
 
-      return newMessage;
+      // Return message with id field for consistency
+      return {
+        id: newMessage._id.toString(),
+        _id: newMessage._id,
+        userId: newMessage.userId,
+        userName: newMessage.userName,
+        message: newMessage.message,
+        userType: newMessage.userType,
+        toUserId: newMessage.toUserId,
+        timestamp: newMessage.timestamp
+      };
     } catch (error) {
       throw new Error(`Failed to create message: ${error.message}`);
     }
@@ -128,12 +138,44 @@ class MessageController {
         ]
       }).sort({ timestamp: 1 }).limit(limit);
 
-      return messages;
+      // Return with id field for consistency
+      return messages.map(msg => ({
+        id: msg._id.toString(),
+        _id: msg._id,
+        userId: msg.userId,
+        userName: msg.userName,
+        message: msg.message,
+        userType: msg.userType,
+        toUserId: msg.toUserId,
+        timestamp: msg.timestamp
+      }));
     } catch (error) {
       throw new Error(`Failed to get message history: ${error.message}`);
+    }
+  }
+
+  // Get all messages for admin (for socket events)
+  async getAllMessagesForAdmin(limit = 200) {
+    try {
+      const messages = await Message.find()
+        .sort({ timestamp: 1 })
+        .limit(limit);
+
+      // Return with id field for consistency
+      return messages.map(msg => ({
+        id: msg._id.toString(),
+        _id: msg._id,
+        userId: msg.userId,
+        userName: msg.userName,
+        message: msg.message,
+        userType: msg.userType,
+        toUserId: msg.toUserId,
+        timestamp: msg.timestamp
+      }));
+    } catch (error) {
+      throw new Error(`Failed to get all messages: ${error.message}`);
     }
   }
 }
 
 module.exports = new MessageController();
-

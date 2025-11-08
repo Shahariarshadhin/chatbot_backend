@@ -88,9 +88,16 @@ class SocketController {
         }
       });
 
-      // Load message history for this user
-      const messages = await messageController.getUserMessageHistory(userId);
-      socket.emit('message-history', messages);
+      // Load message history
+      if (userType === 'admin' || userType === 'support') {
+        // For admin: Load all messages from all users
+        const allMessages = await messageController.getAllMessagesForAdmin();
+        socket.emit('message-history', allMessages);
+      } else {
+        // For regular users: Load only their messages
+        const messages = await messageController.getUserMessageHistory(userId);
+        socket.emit('message-history', messages);
+      }
     } catch (error) {
       console.error('Error in handleJoinChat:', error);
       socket.emit('error', { message: 'Failed to join chat' });
@@ -108,7 +115,7 @@ class SocketController {
         return;
       }
 
-      // Create message in database
+      // Create message in database first
       const newMessage = await messageController.createMessage({
         userId: userInfo.userId,
         userName: userInfo.userName,
@@ -117,29 +124,34 @@ class SocketController {
         toUserId: toUserId || null
       });
 
-      // Determine target room
-      let targetRoom;
+      console.log('💾 Message saved to database:', newMessage);
+
+      // Send confirmation to sender immediately
+      socket.emit('new-message', newMessage);
+
+      // Determine target room and emit
       if (userInfo.userType === 'admin' || userInfo.userType === 'support') {
         // Admin/support sends to specific user
-        targetRoom = `user-${toUserId}`;
+        const targetRoom = `user-${toUserId}`;
+        this.io.to(targetRoom).emit('new-message', newMessage);
+        console.log(`📤 Admin message sent to room: ${targetRoom}`);
       } else {
-        // User sends to admin room
-        targetRoom = 'admin-room';
-        // Also send to the user's own room for confirmation
-        socket.emit('new-message', newMessage);
-      }
-
-      // Emit to target room
-      this.io.to(targetRoom).emit('new-message', newMessage);
-
-      // Also notify admin about user message
-      if (userInfo.userType !== 'admin' && userInfo.userType !== 'support') {
+        // User sends to admin room - emit to all admins
+        this.io.to('admin-room').emit('new-message', newMessage);
+        console.log('📤 User message sent to admin-room');
+        
+        // Also send to user's own room for consistency
+        this.io.to(`user-${userInfo.userId}`).emit('new-message', newMessage);
+        
+        // Notify admin about new message
         this.io.to('admin-room').emit('user-message-notification', {
           userId: userInfo.userId,
           userName: userInfo.userName,
           message: newMessage
         });
       }
+
+      console.log(`✅ Message delivered successfully from ${userInfo.userName}`);
     } catch (error) {
       console.error('Error in handleSendMessage:', error);
       socket.emit('error', { message: 'Failed to send message' });
@@ -166,14 +178,24 @@ class SocketController {
   }
 
   // Handle admin joining specific user chat
-  handleAdminJoinUserChat(socket, data) {
-    const { userId } = data;
-    const userInfo = this.activeUsers.get(socket.id);
-    
-    if (userInfo && (userInfo.userType === 'admin' || userInfo.userType === 'support')) {
-      const userRoom = `user-${userId}`;
-      socket.join(userRoom);
-      socket.emit('joined-user-chat', { userId, room: userRoom });
+  async handleAdminJoinUserChat(socket, data) {
+    try {
+      const { userId } = data;
+      const userInfo = this.activeUsers.get(socket.id);
+      
+      if (userInfo && (userInfo.userType === 'admin' || userInfo.userType === 'support')) {
+        const userRoom = `user-${userId}`;
+        socket.join(userRoom);
+        
+        // Load conversation history for this specific user
+        const messages = await messageController.getUserMessageHistory(userId);
+        socket.emit('user-chat-history', { userId, messages });
+        
+        socket.emit('joined-user-chat', { userId, room: userRoom });
+      }
+    } catch (error) {
+      console.error('Error in handleAdminJoinUserChat:', error);
+      socket.emit('error', { message: 'Failed to join user chat' });
     }
   }
 
@@ -228,4 +250,3 @@ class SocketController {
 }
 
 module.exports = SocketController;
-
